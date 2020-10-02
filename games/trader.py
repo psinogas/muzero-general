@@ -3,6 +3,7 @@ import os
 
 import numpy
 import torch
+import pandas as pd
 
 import random
 import csv
@@ -12,6 +13,10 @@ from matplotlib import pyplot as plt
 from .abstract_game import AbstractGame
 
 # TODO: reward on time : the longer it takes more expensive (cost of capital/ oportunity)
+
+sintetic: bool = False
+
+data: list = [[],[],[],[]]
 
 # 1 asset, raw history, long short trader, max 1 trade (open+close)
 history_size = 1 # 10 secs 5 mins
@@ -25,19 +30,19 @@ sin_data: list = [
     0.0,  0.2079,  0.4067,  0.5878,  0.7431,  0.866,  0.9511,  0.9945,  0.9945,  0.9511
     ]
 
-full_raw_data: list = []
+RAW_VALUE = 0
+DELTA_VALUE = 1
+SMA_20 = 2
+EMA_20 = 3
 
-DELTA_PRICE = 0
-KML_UPPER_1 = 1
-KML_UPPER_2 = 2
-KML_UPPER_3 = 3
-KML_LOWER_1 = 4
-KML_LOWER_2 = 5
-KML_LOWER_3 = 6
+HISTORY_SIZE = 60 # seconds, ou 60*60
 
-SMA_20 = 7
-EMA_20 = 8
-
+KML_UPPER_1 = 4
+KML_UPPER_2 = 5
+KML_UPPER_3 = 6
+KML_LOWER_1 = 7
+KML_LOWER_2 = 8
+KML_LOWER_3 = 9
 
 class MuZeroConfig:
 
@@ -56,7 +61,7 @@ class MuZeroConfig:
         # List of players. You should only edit the length
         self.players = [0]
         # Number of previous observations and previous actions to add to the current observation
-        self.stacked_observations = 60*60
+        self.stacked_observations = HISTORY_SIZE
 
         # Evaluate
         # Turn Muzero begins to play (0: MuZero plays first, 1: MuZero plays second)
@@ -200,27 +205,52 @@ class Game(AbstractGame):
 
 class TradingEnv:
 
-    def __init__(self, size=history_size):
-        # self.raw_data = [10+x for x in sin_data]
-
-        print("read raw data")
-        if len(full_raw_data) == 0:
+    def fetch_raw(self) -> list:
+        print("FETCH")
+        out_list: list
+        if sintetic:
+            out_list = [10+x for x in sin_data]
+        else:
+            out_list = []
             with open('/Users/sinogas/Dev/ALSIMind/ALSIMind-algos/output/bot/alsibot.20200715.LINKUSDT.csv', 'rU') as infile:
                 reader = csv.DictReader(infile, fieldnames=["ts","symbol","price","volume"])
                 for row in reader:
-                    full_raw_data.append(float(row["price"]))
-            print(f"read {len(full_raw_data)} records.")
+                    out_list.append(float(row["price"]))
+        print(f"read {len(out_list)} records.")
+        return out_list
 
-        self.raw_data = full_raw_data
-        self.delta_data = None
+    def calc_delta(self, in_list: list) -> list:
+        print("CALC DELTA")
+        out_list: list = []
         previous = None
-        for x in self.raw_data:
-            if self.delta_data is None:
-                self.delta_data = []
-            else:
-                self.delta_data.append((x-previous)/previous)
+        for x in in_list:
+            if previous is not None:
+                out_list.append((x-previous)/previous)
             previous = x
-        self.delta_data.append(0)
+        out_list.append(0)
+        return out_list
+
+    def calc_sma(self, in_list: list, size: int = 20) -> list:
+        print("CALC SMA")
+        dataFrame = pd.DataFrame(in_list)
+        out_list = dataFrame.rolling(window=size).mean()
+        out_list = out_list.values.tolist()
+        return out_list
+
+    def calc_ema(self, in_list: list, size: int = 20) -> list:
+        print("CALC EMA")
+        dataFrame = pd.DataFrame(in_list)
+        out_list = dataFrame.rolling(window=size).mean()
+        out_list = out_list.values.tolist()
+        return out_list
+
+    def __init__(self, size=history_size):
+
+        if len(data[RAW_VALUE]) == 0:
+            data[RAW_VALUE] = self.fetch_raw()
+            data[DELTA_VALUE] = self.calc_delta(data[RAW_VALUE])
+            data[SMA_20] = self.calc_sma(data[DELTA_VALUE], 20)
+            data[EMA_20] = self.calc_ema(data[DELTA_VALUE], 20)
 
         # All calculation in price value, then converted to % to the current price == (calc-price)/price or calc/price
 
@@ -254,11 +284,11 @@ class TradingEnv:
     def step(self, action):
         reward = 0
         finished = False
-        price = self.raw_data[self.ts]
+        price = data[RAW_VALUE][self.ts]
 
         if action in self.legal_actions():
             self.ts += 1
-            if self.ts==len(self.raw_data):
+            if self.ts==len(data[RAW_VALUE]):
                 finished = True
 
         if action not in self.legal_actions():
@@ -311,7 +341,7 @@ class TradingEnv:
         return self.get_observation(), reward, finished
 
     def reset(self):
-        self.ts = self.random.randint(self.window_size,len(self.raw_data)-1)
+        self.ts = self.random.randint(self.window_size,len(data[RAW_VALUE])-1)
         self.start_ts = self.ts
         self.open_price = 0
         self.open_ts = -1
@@ -319,8 +349,8 @@ class TradingEnv:
 
     def render(self):
         im = [
-            self.delta_data[self.ts-self.window_size:self.ts],
-            self.raw_data[self.ts-self.window_size:self.ts]
+            data[DELTA_VALUE][self.ts-self.window_size:self.ts],
+            data[RAW_VALUE][self.ts-self.window_size:self.ts]
         ]
         # im.append(self.open_price)
         # plt.plot(im)
@@ -329,9 +359,9 @@ class TradingEnv:
 
     def get_observation(self):
         observation = [
-            self.delta_data[self.ts-self.window_size:self.ts],
-            [0]*len(self.delta_data[self.ts-self.window_size:self.ts])
-            #self.raw_data[self.ts-self.window_size:self.ts]
+            data[DELTA_VALUE][self.ts-self.window_size:self.ts],
+            [0]*len(data[DELTA_VALUE][self.ts-self.window_size:self.ts])
+            # data[RAW_VALUE][self.ts-self.window_size:self.ts]
         ]
         # observation.append(self.open_price)
         return observation
