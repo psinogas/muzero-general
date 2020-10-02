@@ -5,6 +5,9 @@
 # Mac/OSX
 .DS_Store
 
+2020*
+.gitignore
+
 # Windows
 Thumbs.db
 
@@ -12,6 +15,8 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 *$py.class
+
+*.rdb
 
 # C extensions
 *.so
