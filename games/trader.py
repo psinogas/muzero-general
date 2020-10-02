@@ -19,7 +19,6 @@ sintetic: bool = False
 data: list = [[],[],[],[]]
 
 # 1 asset, raw history, long short trader, max 1 trade (open+close)
-history_size = 1 # 10 secs 5 mins
 sin_data: list = [
     0.0,  0.2079,  0.4067,  0.5878,  0.7431,  0.866,  0.9511,  0.9945,  0.9945,  0.9511,  0.866,  0.7431,  0.5878,  0.4067,  0.2079,
     0.0, -0.2079, -0.4067, -0.5878, -0.7431, -0.866, -0.9511, -0.9945, -0.9945, -0.9511, -0.866, -0.7431, -0.5878, -0.4067, -0.2079,
@@ -30,12 +29,17 @@ sin_data: list = [
     0.0,  0.2079,  0.4067,  0.5878,  0.7431,  0.866,  0.9511,  0.9945,  0.9945,  0.9511
     ]
 
+WINDOW_SIZE = 1 # 10 secs 5 mins
+
+INDICATOR_COUNT = 3
+
+HISTORY_SIZE = 60 # seconds, ou 60*60
+
 RAW_VALUE = 0
 DELTA_VALUE = 1
 SMA_20 = 2
-EMA_20 = 3
 
-HISTORY_SIZE = 60 # seconds, ou 60*60
+EMA_20 = 3
 
 KML_UPPER_1 = 4
 KML_UPPER_2 = 5
@@ -55,7 +59,7 @@ class MuZeroConfig:
 
         # Game
         # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-        self.observation_shape = (1, 2, history_size)
+        self.observation_shape = (1, INDICATOR_COUNT, WINDOW_SIZE)
         # Fixed list of all possible actions. You should only edit the length
         self.action_space = [0, 1, 2] # Hold Buy Sell
         # List of players. You should only edit the length
@@ -265,7 +269,6 @@ class TradingEnv:
 
         # outros indicadores??? como descobrir indicadores que expliquem o q esta a acontecer.... estrategias de outros...
 
-        self.window_size = size
         self.open_price = 0
         self.open_ts = -1
         self.random = random.Random()
@@ -341,7 +344,7 @@ class TradingEnv:
         return self.get_observation(), reward, finished
 
     def reset(self):
-        self.ts = self.random.randint(self.window_size,len(data[RAW_VALUE])-1)
+        self.ts = self.random.randint(WINDOW_SIZE,len(data[RAW_VALUE])-1)
         self.start_ts = self.ts
         self.open_price = 0
         self.open_ts = -1
@@ -349,8 +352,8 @@ class TradingEnv:
 
     def render(self):
         im = [
-            data[DELTA_VALUE][self.ts-self.window_size:self.ts],
-            data[RAW_VALUE][self.ts-self.window_size:self.ts]
+            data[DELTA_VALUE][self.ts-WINDOW_SIZE:self.ts],
+            data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts]
         ]
         # im.append(self.open_price)
         # plt.plot(im)
@@ -359,9 +362,9 @@ class TradingEnv:
 
     def get_observation(self):
         observation = [
-            data[DELTA_VALUE][self.ts-self.window_size:self.ts],
-            [0]*len(data[DELTA_VALUE][self.ts-self.window_size:self.ts])
-            # data[RAW_VALUE][self.ts-self.window_size:self.ts]
+            data[DELTA_VALUE][self.ts-WINDOW_SIZE:self.ts],
+            [0]*len(data[DELTA_VALUE][self.ts-WINDOW_SIZE:self.ts])
+            # data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts]
         ]
         # observation.append(self.open_price)
         return observation
