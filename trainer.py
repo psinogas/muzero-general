@@ -30,7 +30,7 @@ class Trainer:
 
         self.training_step = initial_checkpoint["training_step"]
 
-        if not self.config.train_on_gpu:
+        if "cuda" not in str(next(self.model.parameters()).device):
             print("You are not training on GPU.\n")
 
         # Initialize the optimizer
@@ -280,7 +280,12 @@ class Trainer:
 
     @staticmethod
     def loss_function(
-        value, reward, policy_logits, target_value, target_reward, target_policy,
+        value,
+        reward,
+        policy_logits,
+        target_value,
+        target_reward,
+        target_policy,
     ):
         # Cross-entropy seems to have a better convergence than MSE
         value_loss = (-target_value * torch.nn.LogSoftmax(dim=1)(value)).sum(1)
