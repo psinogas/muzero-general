@@ -29,16 +29,15 @@ sin_data: list = [
     0.0,  0.2079,  0.4067,  0.5878,  0.7431,  0.866,  0.9511,  0.9945,  0.9945,  0.9511
     ]
 
-WINDOW_SIZE = 1 # 10 secs 5 mins
+WINDOW_SIZE = 1*60 # 1h trading slot    # 10 secs to 5 mins # open and close in 10*60 (10 mins)
 
-INDICATOR_COUNT = 3
+INDICATOR_COUNT = 1
 
-HISTORY_SIZE = 60 # seconds, ou 60*60
+HISTORY_SIZE = 60 # 1 min history
 
 RAW_VALUE = 0
 DELTA_VALUE = 1
 SMA_20 = 2
-
 EMA_20 = 3
 
 KML_UPPER_1 = 4
@@ -237,21 +236,41 @@ class TradingEnv:
     def calc_sma(self, in_list: list, size: int = 20) -> list:
         print("CALC SMA")
         dataFrame = pd.DataFrame(in_list)
-        out_list = dataFrame.rolling(window=size).mean()
-        out_list = out_list.values.tolist()
+        out_list = dataFrame.rolling(window=size, min_periods=0).mean()
+        out_list = out_list.iloc[:,0].tolist()
+        # print(f'SMA: {out_list[:size+5]}')
         return out_list
 
     def calc_ema(self, in_list: list, size: int = 20) -> list:
         print("CALC EMA")
         dataFrame = pd.DataFrame(in_list)
-        out_list = dataFrame.rolling(window=size).mean()
-        out_list = out_list.values.tolist()
+        out_list = dataFrame.ewm(span=size, adjust=False).mean()
+        out_list = out_list.iloc[:,0].tolist()
+        # print(f'EMA: {out_list[:size+5]}')
         return out_list
 
-    def __init__(self, size=history_size):
+    def calc_kml_top(self, in_list: list, tolerance: float = 0.1/100) -> list:
+        print("CALC KML Top")
+        dataFrame = pd.DataFrame(in_list)
+        out_list = dataFrame.ewm(span=size, adjust=False).mean()
+        out_list = out_list.iloc[:,0].tolist()
+        print(f'KML_TOP: {out_list[:size+5]}')
+        return out_list
+
+    def calc_kml_bottom(self, in_list: list, tolerance: float = 0.1/100) -> list:
+        print("CALC KML Bottom")
+        dataFrame = pd.DataFrame(in_list)
+        out_list = dataFrame.ewm(span=size, adjust=False).mean()
+        out_list = out_list.iloc[:,0].tolist()
+        print(f'KML_BOTTOM: {out_list[:size+5]}')
+        return out_list
+
+    def __init__(self, size=HISTORY_SIZE):
 
         if len(data[RAW_VALUE]) == 0:
             data[RAW_VALUE] = self.fetch_raw()
+            mean_raw = sum(data[RAW_VALUE])/len(data[RAW_VALUE])
+            data[RAW_VALUE] = [mean_raw - value for value in data[RAW_VALUE]]
             data[DELTA_VALUE] = self.calc_delta(data[RAW_VALUE])
             data[SMA_20] = self.calc_sma(data[DELTA_VALUE], 20)
             data[EMA_20] = self.calc_ema(data[DELTA_VALUE], 20)
@@ -289,6 +308,8 @@ class TradingEnv:
         finished = False
         price = data[RAW_VALUE][self.ts]
 
+        forced = " "
+
         if action in self.legal_actions():
             self.ts += 1
             if self.ts==len(data[RAW_VALUE]):
@@ -301,8 +322,10 @@ class TradingEnv:
             if finished: # finished -> force close position
                 if self.open_price > 0:
                     action = 2
+                    forced = "f"
                 if self.open_price < 0:
                     action = 1
+                    forced = "f"
 
         elif action == 1: # Buy
             if self.open_ts == -1:
@@ -336,35 +359,46 @@ class TradingEnv:
                 reward_eval="---"
             if reward>0:
                 reward_eval="+++"
-            print(f"{reward_eval} {self.ts-1:5} - {trade_type:5} ({self.open_ts-self.start_ts:3}+{self.ts-self.open_ts-1:3}s): open@{abs(self.open_price):7.4f} close@{price:8.4f} P&L:{100*reward:5.2f}%   ")
+            potential_reward = ((self.max_raw-self.min_raw)/self.min_raw)-(2*float(0.075)/100)
+            print(f"{reward_eval} {self.ts-1:5} -{forced:1}{trade_type:5} ({self.start_ts:8,}s : {self.open_ts-self.start_ts:3,}s ->{self.ts-self.open_ts-1:3,}s in {WINDOW_SIZE:,}s): open@{abs(self.open_price):7.4f} close@{price:7.4f} P&L:{100*reward:8.5f}% -> min@{self.min_raw:7.4f} max@{self.max_raw:7.4f} pot:{100*potential_reward:8.5f}%")
         else:
             reward = 0
+
+        reward = 1 * 100 * reward
+
+        #if reward > 0:
+        #    reward *= 3
 
         # reward can be the unrealized profit (now is the realized profit or zero)
         return self.get_observation(), reward, finished
 
     def reset(self):
         self.ts = self.random.randint(WINDOW_SIZE,len(data[RAW_VALUE])-1)
+
+        self.ts = WINDOW_SIZE # AQUI TODO
         self.start_ts = self.ts
         self.open_price = 0
         self.open_ts = -1
+
+        # print(data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts])
+        self.min_raw = min(data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts])
+        self.max_raw = max(data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts])
+
         return self.get_observation()
 
     def render(self):
-        im = [
-            data[DELTA_VALUE][self.ts-WINDOW_SIZE:self.ts],
-            data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts]
-        ]
+        im = [[] for x in range(INDICATOR_COUNT)]
+        for indicator in range(INDICATOR_COUNT):
+            im[indicator]=data[indicator][self.ts-WINDOW_SIZE:self.ts]
         # im.append(self.open_price)
         # plt.plot(im)
         # plt.show()
         # print(self.ts,": ",im)
 
     def get_observation(self):
-        observation = [
-            data[DELTA_VALUE][self.ts-WINDOW_SIZE:self.ts],
-            [0]*len(data[DELTA_VALUE][self.ts-WINDOW_SIZE:self.ts])
-            # data[RAW_VALUE][self.ts-WINDOW_SIZE:self.ts]
-        ]
-        # observation.append(self.open_price)
+        observation = [[] for x in range(INDICATOR_COUNT)]
+        for indicator in range(INDICATOR_COUNT):
+            observation[indicator]=data[indicator][self.ts-WINDOW_SIZE:self.ts]
+
+        # print(f'OBS: {observation}')
         return observation
